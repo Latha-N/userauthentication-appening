@@ -2,6 +2,7 @@ const mongoose = require('mongoose')
 const Schema = mongoose.Schema
 const validator = require('validator')
 const bcryptjs = require('bcryptjs')
+const jwt = require('jsonwebtoken')
 
 const userSchema = new Schema({
         username:{
@@ -28,20 +29,60 @@ const userSchema = new Schema({
             required:true,
             minlength:6,
             maxlength:128
-        }
+        },
+        tokens:[
+            {
+                token:{
+                    type:String
+                },
+                createdAt:{
+                    type:Date,
+                    default:Date.now
+                }
+            }
+        ]
 })
+
+//own instance method
+userSchema.methods.generateToken = function(){
+    const user = this
+    const tokenData = {
+        _id: user._id,
+        username: user.username,
+        createdAt: Number(new Date())
+    }
+    
+    const token = jwt.sign(tokenData, 'jwt@123')
+    user.tokens.push({
+        token
+    })
+
+    return user.save()
+    .then(function(user){
+        return Promise.resolve(token)
+    })
+    .catch(function(err){
+        return Promise.reject(err)
+    })
+}
 
 //pre hooks-mongoose midleware
 userSchema.pre('save',function(next){
     const user = this //this will refer to user object before saving to the database
-    bcryptjs.genSalt(10)
-    .then(function(salt){
+    if(user.isNew){
+        bcryptjs.genSalt(10)
+        .then(function(salt){
         bcryptjs.hash(user.password, salt)
         .then(function(encryptedPassword){
             user.password= encryptedPassword
             next()
         })
     })
+    }else{
+        next()
+
+    }
+    
 
 })
 
@@ -72,6 +113,20 @@ userSchema.statics.findByCredential = function(email, password){
             })
 }
 
+
+userSchema.statics.findByToken = function(token){
+    const User = this
+    let tokenData
+    try {
+        tokenData = jwt.verify(token, 'jwt@123')
+    }catch(err){
+        return Promise.reject(err)
+    }
+    return User.findOne({
+        _id: tokenData._id,
+        'tokens.token': token
+    })
+}
 
 const User = mongoose.model('User', userSchema)
 
